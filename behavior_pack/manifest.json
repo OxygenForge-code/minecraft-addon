@@ -1,0 +1,29 @@
+{
+  "format_version": 2,
+  "header": {
+    "name": "Memory Corruption: Glitch World",
+    "description": "A Bedrock add-on where reality slowly breaks the more you play.",
+    "uuid": "7b6d0a4a-7b50-4a9e-9d4b-2f6cf8d3fb21",
+    "version": [0, 1, 0],
+    "min_engine_version": [1, 21, 0]
+  },
+  "modules": [
+    {
+      "type": "script",
+      "language": "javascript",
+      "uuid": "f1b0f2c8-7ad0-4b40-9dd1-7d6ed5a7b8c2",
+      "version": [0, 1, 0],
+      "entry": "scripts/main.js"
+    }
+  ],
+  "dependencies": [
+    {
+      "module_name": "@minecraft/server",
+      "version": "1.19.0"
+    },
+    {
+      "uuid": "1b2d5f0e-2f45-4b53-9c95-0f2cf89d2cb7",
+      "version": [0, 1, 0]
+    }
+  ]
+}
