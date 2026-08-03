@@ -5,7 +5,7 @@
     "description": "Resource pack scaffold for glitch visuals and future UI textures.",
     "uuid": "1b2d5f0e-2f45-4b53-9c95-0f2cf89d2cb7",
     "version": [0, 1, 0],
-    "min_engine_version": [1, 21, 0]
+    "min_engine_version": [1, 21, 120]
   },
   "modules": [
     {
