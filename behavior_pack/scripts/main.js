@@ -4,6 +4,7 @@ import { distortBlocksNearPlayers, onBlockBrokenWorld } from "./blocks.js";
 import { processCorruptionEvents } from "./events.js";
 import { processCreeperChaos } from "./mobs.js";
 import { processGlitches } from "./glitch.js";
+import { processHallucinations } from "./hallucinations.js";
 import { grantTemporaryStability, processStabilizer } from "./stabilizer.js";
 
 world.afterEvents.playerBreakBlock.subscribe((event) => {
@@ -45,6 +46,7 @@ world.afterEvents.itemUse.subscribe((event) => {
 system.runInterval(() => {
   stepCorruptionOverTime();
   processGlitches();
+  processHallucinations();
   processCorruptionEvents();
   processCreeperChaos();
   processStabilizer();
