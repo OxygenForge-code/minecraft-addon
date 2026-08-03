@@ -1,0 +1,12 @@
+# Bedrock / add-on build artifacts
+node_modules/
+dist/
+build/
+*.zip
+*.mcaddon
+*.mcpack
+
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+.vscode/
