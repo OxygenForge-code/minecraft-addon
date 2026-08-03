@@ -1,0 +1,1 @@
+This directory will contain the custom Memory Stabilizer PNG icon in the next commit.
