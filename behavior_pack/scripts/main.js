@@ -31,7 +31,7 @@ world.afterEvents.itemUse.subscribe((event) => {
     return;
   }
 
-  if (itemType === "minecraft:clock" || itemType === "minecraft:amethyst_shard") {
+  if (itemType === "memorycorruption:memory_stabilizer") {
     grantTemporaryStability(30);
 
     try {
