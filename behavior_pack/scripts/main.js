@@ -4,7 +4,7 @@ import { distortBlocksNearPlayers, onBlockBrokenWorld } from "./blocks.js";
 import { processCorruptionEvents } from "./events.js";
 import { processCreeperChaos } from "./mobs.js";
 import { processGlitches } from "./glitch.js";
-import { processStabilizer } from "./stabilizer.js";
+import { grantTemporaryStability, processStabilizer } from "./stabilizer.js";
 
 world.afterEvents.playerBreakBlock.subscribe((event) => {
   registerBrokenBlock(event.player, event.block);
@@ -21,6 +21,24 @@ world.afterEvents.playerSpawn.subscribe((event) => {
     event.player.onScreenDisplay.setActionBar("§dBozuk Bellek aktif.");
   } catch {
     // ignore spawn UI failures
+  }
+});
+
+world.afterEvents.itemUse.subscribe((event) => {
+  const itemType = event.itemStack?.typeId;
+  if (!itemType) {
+    return;
+  }
+
+  if (itemType === "minecraft:clock" || itemType === "minecraft:amethyst_shard") {
+    grantTemporaryStability(30);
+
+    try {
+      event.source.sendMessage("§aStabilizer dalgası yayıldı. Corruption kısa süreliğine bastırıldı.");
+      event.source.onScreenDisplay.setActionBar("§aMemory Stabilizer: active");
+    } catch {
+      // ignore
+    }
   }
 });
 
