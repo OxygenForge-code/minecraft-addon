@@ -1,0 +1,9 @@
+{
+  "resource_pack_name": "Memory Corruption: Glitch World Resources",
+  "texture_name": "atlas.items",
+  "texture_data": {
+    "memory_stabilizer": {
+      "textures": "textures/items/amethyst_shard"
+    }
+  }
+}
