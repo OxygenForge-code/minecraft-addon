@@ -20,8 +20,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-          cache: gradle
-
+          # Gradle cache is intentionally disabled here because the project is generated from the Forge MDK during the workflow.\n
       - name: Download Forge 1.20.1 MDK
         run: |
           curl -L --fail --retry 3 -o forge-mdk.zip https://maven.minecraftforge.net/net/minecraftforge/forge/1.20.1-47.2.0/forge-1.20.1-47.2.0-mdk.zip
