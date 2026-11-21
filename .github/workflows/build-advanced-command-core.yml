@@ -1,0 +1,421 @@
+name: Build Advanced Command Core Forge 1.20.1
+
+on:
+  push:
+    branches: [ advanced-command-core-forge ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Download Forge 1.20.1 MDK
+        run: |
+          curl -L --fail --retry 3 -o forge-mdk.zip https://maven.minecraftforge.net/net/minecraftforge/forge/1.20.1-47.2.0/forge-1.20.1-47.2.0-mdk.zip
+          unzip -q forge-mdk.zip -d forge-mdk
+          cp -a forge-mdk/. ./
+          rm -rf forge-mdk forge-mdk.zip
+          rm -rf src/main/java src/main/resources
+
+      - name: Write mod source
+        shell: bash
+        run: |
+          mkdir -p src/main/java/com/oxygenforge/advancedcommandcore/block
+          mkdir -p src/main/resources/META-INF
+          mkdir -p src/main/resources/assets/advancedcommandcore/blockstates
+          mkdir -p src/main/resources/assets/advancedcommandcore/models/block
+          mkdir -p src/main/resources/assets/advancedcommandcore/models/item
+          mkdir -p src/main/resources/assets/advancedcommandcore/lang
+          mkdir -p src/main/resources/data/advancedcommandcore/recipes
+          mkdir -p src/main/resources/data/advancedcommandcore/loot_tables/blocks
+
+          cat > build.gradle <<'EOF'
+          plugins {
+              id 'eclipse'
+              id 'idea'
+              id 'maven-publish'
+              id 'net.minecraftforge.gradle' version '[6.0,6.2)'
+          }
+
+          version = '0.1.0'
+          group = 'com.oxygenforge.advancedcommandcore'
+          base.archivesName = 'advancedcommandcore'
+
+          java.toolchain.languageVersion = JavaLanguageVersion.of(17)
+
+          minecraft {
+              mappings channel: 'official', version: '1.20.1'
+              copyIdeResources = true
+              runs {
+                  configureEach {
+                      workingDirectory project.file('run')
+                      property 'forge.logging.markers', 'REGISTRIES'
+                      property 'forge.logging.console.level', 'info'
+                      mods {
+                          advancedcommandcore {
+                              source sourceSets.main
+                          }
+                      }
+                  }
+                  client {}
+                  server { args '--nogui' }
+              }
+          }
+
+          repositories { mavenCentral() }
+
+          dependencies {
+              minecraft 'net.minecraftforge:forge:1.20.1-47.2.0'
+          }
+
+          tasks.withType(JavaCompile).configureEach {
+              options.encoding = 'UTF-8'
+              options.release = 17
+          }
+          EOF
+
+          cat > gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx3G
+          org.gradle.daemon=false
+          EOF
+
+          cat > settings.gradle <<'EOF'
+          pluginManagement {
+              repositories {
+                  gradlePluginPortal()
+                  maven { url = 'https://maven.minecraftforge.net/' }
+              }
+          }
+          rootProject.name = 'advancedcommandcore'
+          EOF
+
+          cat > src/main/resources/META-INF/mods.toml <<'EOF'
+          modLoader="javafml"
+          loaderVersion="[47,)"
+          license="MIT"
+          [[mods]]
+          modId="advancedcommandcore"
+          version="0.1.0"
+          displayName="Advanced Command Core"
+          authors="OxygenForge"
+          description='''
+          A powered advanced command core for Minecraft 1.20.1 Forge.
+          '''
+          [[dependencies.advancedcommandcore]]
+          modId="forge"
+          mandatory=true
+          versionRange="[47.2,)"
+          ordering="NONE"
+          side="BOTH"
+          [[dependencies.advancedcommandcore]]
+          modId="minecraft"
+          mandatory=true
+          versionRange="[1.20.1,1.21)"
+          ordering="NONE"
+          side="BOTH"
+          EOF
+
+          cat > src/main/java/com/oxygenforge/advancedcommandcore/AdvancedCommandCore.java <<'EOF'
+          package com.oxygenforge.advancedcommandcore;
+
+          import com.oxygenforge.advancedcommandcore.block.AdvancedCommandBlock;
+          import com.oxygenforge.advancedcommandcore.block.EnergyCellBlock;
+          import com.oxygenforge.advancedcommandcore.block.PowerGeneratorBlock;
+          import net.minecraft.core.BlockPos;
+          import net.minecraft.network.chat.Component;
+          import net.minecraft.resources.ResourceLocation;
+          import net.minecraft.server.MinecraftServer;
+          import net.minecraft.server.level.ServerLevel;
+          import net.minecraft.world.level.Level;
+          import net.minecraft.world.level.block.Block;
+          import net.minecraft.world.level.block.state.BlockBehaviour;
+          import net.minecraft.world.item.BlockItem;
+          import net.minecraft.world.item.Item;
+          import net.minecraft.world.item.CreativeModeTabs;
+          import net.minecraftforge.common.MinecraftForge;
+          import net.minecraftforge.event.TickEvent;
+          import net.minecraftforge.event.BuildCreativeModeTabContentsEvent;
+          import net.minecraftforge.eventbus.api.IEventBus;
+          import net.minecraftforge.fml.common.Mod;
+          import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
+          import net.minecraftforge.registries.ForgeRegistries;
+          import net.minecraftforge.registries.RegisterEvent;
+          import java.util.Map;
+          import java.util.concurrent.ConcurrentHashMap;
+
+          @Mod(AdvancedCommandCore.MOD_ID)
+          public final class AdvancedCommandCore {
+              public static final String MOD_ID = "advancedcommandcore";
+              public static Block ADVANCED_COMMAND_CORE;
+              public static Block POWER_GENERATOR;
+              public static Block ENERGY_CELL;
+              public static BlockItem ADVANCED_COMMAND_CORE_ITEM;
+              public static BlockItem POWER_GENERATOR_ITEM;
+              public static BlockItem ENERGY_CELL_ITEM;
+
+              private static final int ENERGY_CAPACITY = 1000;
+              private static final int PASSIVE_CHARGE_PER_SECOND = 18;
+              private static final Map<String, Integer> ENERGY = new ConcurrentHashMap<>();
+              private static int serverTickCounter = 0;
+
+              public AdvancedCommandCore() {
+                  IEventBus modBus = FMLJavaModLoadingContext.get().getModEventBus();
+                  modBus.addListener(this::registerContent);
+                  modBus.addListener(this::addCreativeContents);
+                  MinecraftForge.EVENT_BUS.addListener(this::onServerTick);
+              }
+
+              private void registerContent(RegisterEvent event) {
+                  if (event.getRegistryKey().equals(ForgeRegistries.Keys.BLOCKS)) {
+                      event.register(ForgeRegistries.Keys.BLOCKS, helper -> {
+                          ADVANCED_COMMAND_CORE = new AdvancedCommandBlock();
+                          POWER_GENERATOR = new PowerGeneratorBlock(BlockBehaviour.Properties.of().strength(4.0F, 8.0F).requiresCorrectToolForDrops());
+                          ENERGY_CELL = new EnergyCellBlock(BlockBehaviour.Properties.of().strength(3.0F, 6.0F).requiresCorrectToolForDrops());
+                          helper.register(id("advanced_command_core"), ADVANCED_COMMAND_CORE);
+                          helper.register(id("power_generator"), POWER_GENERATOR);
+                          helper.register(id("energy_cell"), ENERGY_CELL);
+                      });
+                  } else if (event.getRegistryKey().equals(ForgeRegistries.Keys.ITEMS)) {
+                      event.register(ForgeRegistries.Keys.ITEMS, helper -> {
+                          ADVANCED_COMMAND_CORE_ITEM = new BlockItem(ADVANCED_COMMAND_CORE, new Item.Properties());
+                          POWER_GENERATOR_ITEM = new BlockItem(POWER_GENERATOR, new Item.Properties());
+                          ENERGY_CELL_ITEM = new BlockItem(ENERGY_CELL, new Item.Properties());
+                          helper.register(id("advanced_command_core"), ADVANCED_COMMAND_CORE_ITEM);
+                          helper.register(id("power_generator"), POWER_GENERATOR_ITEM);
+                          helper.register(id("energy_cell"), ENERGY_CELL_ITEM);
+                      });
+                  }
+              }
+
+              private void addCreativeContents(BuildCreativeModeTabContentsEvent event) {
+                  if (event.getTabKey().equals(CreativeModeTabs.REDSTONE_BLOCKS)) {
+                      event.accept(() -> ADVANCED_COMMAND_CORE_ITEM);
+                      event.accept(() -> POWER_GENERATOR_ITEM);
+                      event.accept(() -> ENERGY_CELL_ITEM);
+                  }
+              }
+
+              private static ResourceLocation id(String path) {
+                  return new ResourceLocation(MOD_ID, path);
+              }
+
+              public static boolean hasPower(Level level, BlockPos pos) {
+                  return POWER_GENERATOR != null && ENERGY_CELL != null
+                      && level.getBlockState(pos.below()).is(POWER_GENERATOR)
+                      && level.getBlockState(pos.below(2)).is(ENERGY_CELL);
+              }
+
+              public static int getEnergy(Level level, BlockPos pos) {
+                  return ENERGY.computeIfAbsent(key(level, pos), ignored -> 250);
+              }
+
+              public static boolean consumeEnergy(Level level, BlockPos pos, int amount) {
+                  String key = key(level, pos);
+                  int current = ENERGY.computeIfAbsent(key, ignored -> 250);
+                  if (current < amount) return false;
+                  ENERGY.put(key, current - amount);
+                  return true;
+              }
+
+              private static String key(Level level, BlockPos pos) {
+                  return level.dimension().location() + "|" + pos.asLong();
+              }
+
+              private void onServerTick(TickEvent.ServerTickEvent event) {
+                  if (event.phase != TickEvent.Phase.END || ++serverTickCounter % 20 != 0) return;
+                  MinecraftServer server = event.getServer();
+                  for (ServerLevel level : server.getAllLevels()) {
+                      String prefix = level.dimension().location() + "|";
+                      for (Map.Entry<String, Integer> entry : ENERGY.entrySet()) {
+                          String storedKey = entry.getKey();
+                          if (!storedKey.startsWith(prefix)) continue;
+                          try {
+                              BlockPos pos = BlockPos.of(Long.parseLong(storedKey.substring(prefix.length())));
+                              if (level.getBlockState(pos).is(ADVANCED_COMMAND_CORE) && hasPower(level, pos)) {
+                                  ENERGY.computeIfPresent(storedKey, (ignored, value) -> Math.min(ENERGY_CAPACITY, value + PASSIVE_CHARGE_PER_SECOND));
+                              }
+                          } catch (NumberFormatException ignored) {}
+                      }
+                  }
+              }
+
+              public static int commandEnergyCost(String command) {
+                  String lower = command.toLowerCase();
+                  int cost = 20 + Math.max(0, command.length() / 12);
+                  if (lower.contains("summon")) cost += 35;
+                  if (lower.contains("fill") || lower.contains("clone")) cost += 45;
+                  if (lower.contains("execute")) cost += 10;
+                  if (lower.startsWith("tp ") || lower.equals("tp")) cost += 10;
+                  return Math.min(250, cost);
+              }
+
+              public static void sendMessage(net.minecraft.world.entity.player.Player player, String message) {
+                  player.sendSystemMessage(Component.literal("§b[ACC] §f" + message));
+              }
+          }
+          EOF
+
+          cat > src/main/java/com/oxygenforge/advancedcommandcore/block/PowerGeneratorBlock.java <<'EOF'
+          package com.oxygenforge.advancedcommandcore.block;
+          import net.minecraft.world.level.block.Block;
+          import net.minecraft.world.level.block.state.BlockBehaviour;
+          public final class PowerGeneratorBlock extends Block {
+              public PowerGeneratorBlock(BlockBehaviour.Properties properties) { super(properties); }
+          }
+          EOF
+
+          cat > src/main/java/com/oxygenforge/advancedcommandcore/block/EnergyCellBlock.java <<'EOF'
+          package com.oxygenforge.advancedcommandcore.block;
+          import net.minecraft.world.level.block.Block;
+          import net.minecraft.world.level.block.state.BlockBehaviour;
+          public final class EnergyCellBlock extends Block {
+              public EnergyCellBlock(BlockBehaviour.Properties properties) { super(properties); }
+          }
+          EOF
+
+          cat > src/main/java/com/oxygenforge/advancedcommandcore/block/AdvancedCommandBlock.java <<'EOF'
+          package com.oxygenforge.advancedcommandcore.block;
+
+          import com.oxygenforge.advancedcommandcore.AdvancedCommandCore;
+          import net.minecraft.core.BlockPos;
+          import net.minecraft.network.chat.Component;
+          import net.minecraft.server.level.ServerLevel;
+          import net.minecraft.world.InteractionHand;
+          import net.minecraft.world.InteractionResult;
+          import net.minecraft.world.entity.player.Player;
+          import net.minecraft.world.level.Level;
+          import net.minecraft.world.level.block.CommandBlock;
+          import net.minecraft.world.level.block.entity.BlockEntity;
+          import net.minecraft.world.level.block.entity.CommandBlockEntity;
+          import net.minecraft.world.level.block.state.BlockBehaviour;
+          import net.minecraft.world.level.block.state.BlockState;
+          import net.minecraft.world.phys.BlockHitResult;
+          import net.minecraft.world.phys.Vec3;
+
+          @SuppressWarnings("deprecation")
+          public final class AdvancedCommandBlock extends CommandBlock {
+              public AdvancedCommandBlock() {
+                  super(BlockBehaviour.Properties.of().strength(4.0F, 1200.0F).requiresCorrectToolForDrops(), false);
+              }
+
+              @Override
+              public InteractionResult use(BlockState state, Level level, BlockPos pos, Player player, InteractionHand hand, BlockHitResult hit) {
+                  if (level.isClientSide) return InteractionResult.SUCCESS;
+
+                  if (!AdvancedCommandCore.hasPower(level, pos)) {
+                      AdvancedCommandCore.sendMessage(player, "Power offline. Stack: Core > Power Generator > Energy Cell.");
+                      return InteractionResult.CONSUME;
+                  }
+
+                  if (!player.hasPermissions(2)) {
+                      AdvancedCommandCore.sendMessage(player, "Operator permission is required.");
+                      return InteractionResult.CONSUME;
+                  }
+
+                  int energy = AdvancedCommandCore.getEnergy(level, pos);
+
+                  if (player.isShiftKeyDown()) {
+                      BlockEntity blockEntity = level.getBlockEntity(pos);
+                      if (!(blockEntity instanceof CommandBlockEntity commandBlockEntity)) {
+                          AdvancedCommandCore.sendMessage(player, "Command processor unavailable.");
+                          return InteractionResult.CONSUME;
+                      }
+
+                      String command = commandBlockEntity.getCommandBlock().getCommand();
+                      if (command == null || command.trim().isEmpty()) {
+                          AdvancedCommandCore.sendMessage(player, "No command loaded.");
+                          return InteractionResult.CONSUME;
+                      }
+
+                      int cost = AdvancedCommandCore.commandEnergyCost(command);
+                      if (!AdvancedCommandCore.consumeEnergy(level, pos, cost)) {
+                          AdvancedCommandCore.sendMessage(player, "Insufficient energy. Need " + cost + " FE; stored: " + energy + " FE.");
+                          return InteractionResult.CONSUME;
+                      }
+
+                      ServerLevel serverLevel = (ServerLevel) level;
+                      var source = serverLevel.getServer().createCommandSourceStack()
+                              .withLevel(serverLevel)
+                              .withPosition(Vec3.atCenterOf(pos))
+                              .withPermission(2);
+                      int result = serverLevel.getServer().getCommands().performPrefixedCommand(
+                              source, command.startsWith("/") ? command.substring(1) : command);
+                      AdvancedCommandCore.sendMessage(player, "Executed • " + cost + " FE • result " + result);
+                      return InteractionResult.CONSUME;
+                  }
+
+                  AdvancedCommandCore.sendMessage(player, "ONLINE • " + energy + "/1000 FE • Shift + right-click = EXECUTE");
+                  return super.use(state, level, pos, player, hand, hit);
+              }
+          }
+          EOF
+
+          cat > src/main/resources/assets/advancedcommandcore/lang/en_us.json <<'EOF'
+          {"block.advancedcommandcore.advanced_command_core":"Advanced Command Core","block.advancedcommandcore.power_generator":"Power Generator","block.advancedcommandcore.energy_cell":"Energy Cell"}
+          EOF
+          cat > src/main/resources/assets/advancedcommandcore/lang/tr_tr.json <<'EOF'
+          {"block.advancedcommandcore.advanced_command_core":"Gelişmiş Komut Çekirdeği","block.advancedcommandcore.power_generator":"Güç Jeneratörü","block.advancedcommandcore.energy_cell":"Enerji Hücresi"}
+          EOF
+
+          cat > src/main/resources/assets/advancedcommandcore/blockstates/advanced_command_core.json <<'EOF'
+          {"variants":{"":{"model":"advancedcommandcore:block/advanced_command_core"}}}
+          EOF
+          cat > src/main/resources/assets/advancedcommandcore/blockstates/power_generator.json <<'EOF'
+          {"variants":{"":{"model":"advancedcommandcore:block/power_generator"}}}
+          EOF
+          cat > src/main/resources/assets/advancedcommandcore/blockstates/energy_cell.json <<'EOF'
+          {"variants":{"":{"model":"advancedcommandcore:block/energy_cell"}}}
+          EOF
+
+          cat > src/main/resources/assets/advancedcommandcore/models/block/advanced_command_core.json <<'EOF'
+          {"parent":"minecraft:block/cube_all","textures":{"all":"minecraft:block/command_block"}}
+          EOF
+          cat > src/main/resources/assets/advancedcommandcore/models/block/power_generator.json <<'EOF'
+          {"parent":"minecraft:block/cube_all","textures":{"all":"minecraft:block/furnace_side"}}
+          EOF
+          cat > src/main/resources/assets/advancedcommandcore/models/block/energy_cell.json <<'EOF'
+          {"parent":"minecraft:block/cube_all","textures":{"all":"minecraft:block/diamond_block"}}
+          EOF
+          cat > src/main/resources/assets/advancedcommandcore/models/item/advanced_command_core.json <<'EOF'
+          {"parent":"advancedcommandcore:block/advanced_command_core"}
+          EOF
+          cat > src/main/resources/assets/advancedcommandcore/models/item/power_generator.json <<'EOF'
+          {"parent":"advancedcommandcore:block/power_generator"}
+          EOF
+          cat > src/main/resources/assets/advancedcommandcore/models/item/energy_cell.json <<'EOF'
+          {"parent":"advancedcommandcore:block/energy_cell"}
+          EOF
+
+          cat > src/main/resources/data/advancedcommandcore/recipes/advanced_command_core.json <<'EOF'
+          {"type":"minecraft:crafting_shaped","pattern":["RNR","CEC","IRI"],"key":{"R":{"item":"minecraft:redstone_block"},"N":{"item":"minecraft:nether_star"},"C":{"item":"minecraft:command_block"},"E":{"item":"minecraft:ender_pearl"},"I":{"item":"minecraft:iron_block"}},"result":{"item":"advancedcommandcore:advanced_command_core","count":1}}
+          EOF
+          cat > src/main/resources/data/advancedcommandcore/recipes/power_generator.json <<'EOF'
+          {"type":"minecraft:crafting_shaped","pattern":["ICI","IFI","IRI"],"key":{"I":{"item":"minecraft:iron_ingot"},"C":{"item":"minecraft:copper_block"},"F":{"item":"minecraft:furnace"},"R":{"item":"minecraft:redstone"}}, "result":{"item":"advancedcommandcore:power_generator","count":1}}
+          EOF
+          cat > src/main/resources/data/advancedcommandcore/recipes/energy_cell.json <<'EOF'
+          {"type":"minecraft:crafting_shaped","pattern":["IDI","DND","IDI"],"key":{"I":{"item":"minecraft:iron_ingot"},"D":{"item":"minecraft:diamond"},"N":{"item":"minecraft:nether_star"}}, "result":{"item":"advancedcommandcore:energy_cell","count":1}}
+          EOF
+
+      - name: Build and reobfuscate
+        run: ./gradlew build --no-daemon --stacktrace
+
+      - name: Upload Forge mod JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: advancedcommandcore-forge-1.20.1
+          path: build/libs/*.jar
+          if-no-files-found: error
+          retention-days: 30
